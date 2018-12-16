@@ -56,6 +56,7 @@ THE SOFTWARE.
 #include <libavutil/frame.h>
 
 #include "player.h"
+#include "debug.h"
 #include "ui.h"
 #include "ui_types.h"
 
@@ -389,6 +390,7 @@ static int play (player_t * const player) {
 				/* enter drain mode */
 				drainMode = DRAIN;
 				avcodec_send_packet (cctx, NULL);
+				debugPrint ("decoder entering drain mode after EOF\n");
 			} else if (pkt.stream_index != player->streamIdx) {
 				/* unused packet */
 				av_packet_unref (&pkt);
@@ -396,6 +398,8 @@ static int play (player_t * const player) {
 			} else if (ret < 0) {
 				/* error, abort */
 				/* mark the EOF, so that BarAoPlayThread can quit*/
+				debugPrint ("av_read_frame failed with code %i, sending "
+						"NULL frame\n", ret);
 				pthread_mutex_lock (&player->aoplayLock);
 				const int rt = av_buffersrc_add_frame (player->fabuf, NULL);
 				assert (rt == 0);
@@ -414,6 +418,7 @@ static int play (player_t * const player) {
 				/* done draining */
 				drainMode = DONE;
 				/* mark the EOF*/
+				debugPrint ("receive_frame got EOF, sending NULL frame\n");
 				pthread_mutex_lock (&player->aoplayLock);
 				const int rt = av_buffersrc_add_frame (player->fabuf, NULL);
 				assert (rt == 0);
@@ -440,10 +445,14 @@ static int play (player_t * const player) {
 				bufferHealth = av_q2d (player->st->time_base) * 
 						(double) (frame->pts - player->lastTimestamp);
 				if (bufferHealth > minBufferHealth) {
+					debugPrint ("decoding buffer filled health %li minHealth %li\n",
+							bufferHealth, minBufferHealth);
 					/* Buffer get healthy, resume */
 					pthread_cond_broadcast (&player->aoplayCond);
 					/* Buffer is healthy enough, wait */
 					pthread_cond_wait (&player->aoplayCond, &player->aoplayLock);
+					debugPrint ("ao play signalled it needs more data health %li minHealth %li\n",
+							bufferHealth, minBufferHealth);
 				}
 				pthread_mutex_unlock (&player->aoplayLock);
 			} while (bufferHealth > minBufferHealth);
@@ -452,6 +461,7 @@ static int play (player_t * const player) {
 		av_packet_unref (&pkt);
 	}
 	av_frame_free (&frame);
+	debugPrint ("decoder is done, waiting for ao player\n");
 	pthread_join (aoplaythread, NULL);
 
 	return ret;
@@ -525,9 +535,12 @@ void *BarAoPlayThread (void *data) {
 		if (ret == AVERROR_EOF || shouldQuit (player)) {
 			/* we are done here */
 			pthread_mutex_unlock (&player->aoplayLock);
+			debugPrint ("ao player got EOF, exiting\n");
 			break;
 		} else if (ret < 0) {
 			/* wait for more frames */
+			debugPrint ("ao player is waiting for more frames after code %i\n",
+					ret);
 			pthread_cond_wait (&player->aoplayCond, &player->aoplayLock);
 			pthread_mutex_unlock (&player->aoplayLock);
 			continue;
@@ -548,8 +561,10 @@ void *BarAoPlayThread (void *data) {
 		/* pausing */
 		if (player->doPause) {
 			do {
+				debugPrint ("ao player is paused\n");
 				pthread_cond_wait (&player->cond, &player->lock);
 			} while (player->doPause);
+			debugPrint ("ao player continues\n");
 		}
 		pthread_mutex_unlock (&player->lock);
 
@@ -562,6 +577,7 @@ void *BarAoPlayThread (void *data) {
 		av_frame_unref (filteredFrame);
 	}
 	av_frame_free (&filteredFrame);
+	debugPrint ("ao player is done\n");
 
 	return (void *) 0;
 }
