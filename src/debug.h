@@ -49,6 +49,6 @@ inline static void debugPrint(const char * const format, ...) {
 }
 #else
 inline static bool debugEnable () {}
-#define debugPrintf(...)
+#define debugPrint(...)
 #endif
 
