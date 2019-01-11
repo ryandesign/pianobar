@@ -539,8 +539,8 @@ void *BarAoPlayThread (void *data) {
 			break;
 		} else if (ret < 0) {
 			/* wait for more frames */
-			debugPrint ("ao player is waiting for more frames after code %i\n",
-					ret);
+			debugPrint ("ao player is waiting for more frames after code %i (%s)\n",
+					ret, av_err2str (ret));
 			pthread_cond_wait (&player->aoplayCond, &player->aoplayLock);
 			pthread_mutex_unlock (&player->aoplayLock);
 			continue;
